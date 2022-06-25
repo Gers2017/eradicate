@@ -1,57 +1,86 @@
-use std::{error::Error, env::args, path::PathBuf, io, fs};
+use std::{error::Error, path::{PathBuf}, io, fs};
 use glob::glob;
+use argh;
+use argh::FromArgs;
+use ansi_term::Colour::{Cyan, Purple, Blue};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = args();
-    let vec_args: Vec<String> = args.collect();
+#[derive(FromArgs)]
+/// Eradicate files with patterns and no mercy
+pub struct Eradicate {
+    /// the pattern to use for the eradication
+    #[argh(positional)]
+    pub pattern: String,
 
-    let pattern = vec_args.get(1).map_or("**/*.rs", |x| x.as_str());
-    let forcefuly = false;
-    let interactive = true;
-    let verbose = true;
-    
-    let mut paths: Vec<PathBuf> = vec![];
+    /// interactive mode. Slow and Steady
+    #[argh(switch, short = 'i')]
+    pub interactive: bool,
 
-    println!("Searching files with pattern {}", pattern);
-    for entry in glob(&pattern)? {
-        let path = entry?.to_owned();
-        paths.push(path);
-    }
-    
+    /// forcefully delete files. Don't ask, just do it
+    #[argh(switch, short = 'f')]
+    pub force: bool,
+
+    /// verbose output
+    #[argh(switch, short = 'v')]
+    pub verbose: bool,
+}
+
+type ResultBox<T> = Result<T, Box<dyn Error>>;
+
+fn main() -> ResultBox<()> {
+    let erad: Eradicate = argh::from_env();
+    let pattern = erad.pattern;
+    let verbose = erad.verbose;
+    let interactive = erad.interactive;
+    let force = erad.force;
+
+    println!("Searching files with pattern {}", paint_purple(pattern.to_string()));
+   
+    let paths :Vec<PathBuf> = glob(&pattern)?.filter_map(Result::ok).collect();
+      
     if paths.len() > 0 {
-        if verbose {
-            let paths_str:Vec<_> = paths.iter().map(|p| p.to_string_lossy()).collect();
-            println!("Files to eradicate:\n{}", paths_str.join("  \n"));
-        }
-
-        if forcefuly {
-            delete_files(&paths)?;
-            return Ok(());
-        }
-
-        if interactive {
-            for path in paths.iter() {
-                println!("Eradicate {}?", path.display());
-                let is_delete = prompt()?;
-                if is_delete {
-                    fs::remove_file(path)?
-                }
-            }
-        } else {
-            println!("Eradicate files? [Y/n]");
-            let is_delete = prompt()?;
-            if is_delete {
-                println!("Eradication Completed!");
-                delete_files(&paths)?
-            } else {
-                println!("No files were eradicated");
-            }
-        }
+        eradicate(&paths, verbose, interactive, force)?
     } else {
-        println!("No files match the pattern");
+        println!("No files match the pattern {}", paint_purple(pattern.to_string()));
     }
 
     return Ok(());
+}
+
+fn eradicate(paths: &Vec<PathBuf>, verbose: bool, interactive: bool, force: bool) -> ResultBox<()> {
+    let length = paths.len();
+    println!("Files to eradicate: {}", paint_purple(length.to_string()));
+
+    if verbose {
+        let paths_str:Vec<_> = paths.iter().map(|p| p.to_string_lossy()).collect();
+        println!("{}", paint_blue(paths_str.join("  \n")));
+    }
+
+    if force {
+        delete_files(&paths)?;
+        return Ok(());
+    }
+    
+    if interactive {
+        for path in paths.iter() {
+            let cyan_filepath = paint_cyan(path.display().to_string());
+            let is_delete = prompt(format!("Eradicate {}?", cyan_filepath))?;
+            if is_delete {
+                fs::remove_file(path)?;
+                if verbose { println!("{} was eradicated!", cyan_filepath); }
+            }
+        }
+        return Ok(());
+    }
+
+    let is_delete = prompt("Eradicate files?".into())?;
+    if is_delete {
+        delete_files(&paths)?;
+        println!("Eradication completed!");
+    } else {
+        println!("No files were eradicated");
+    }
+    
+    Ok(())
 }
 
 fn delete_files(paths: &Vec<PathBuf>) -> io::Result<()> {
@@ -61,7 +90,8 @@ fn delete_files(paths: &Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
-fn prompt() -> io::Result<bool> {
+fn prompt(message: String) -> io::Result<bool> {
+    println!("{} [Y/n]", message);
     let mut buffer = String::new();
     let stdin = io::stdin();
     stdin.read_line(&mut buffer)?;
@@ -74,4 +104,16 @@ fn prompt() -> io::Result<bool> {
             Ok(false)
         }
     }
+}
+
+fn paint_purple(s: String) -> String {
+    Purple.bold().paint(s).to_string()
+}
+
+fn paint_blue(s: String) -> String {
+    Blue.paint(s).to_string()
+}
+
+fn paint_cyan(s: String) -> String {
+    Cyan.bold().paint(s).to_string()
 }

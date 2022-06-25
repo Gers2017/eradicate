@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 glob = "0.3.0"
 argh = "0.1.7"
+ansi_term = "0.12.1"
